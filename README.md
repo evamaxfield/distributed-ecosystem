@@ -8,18 +8,17 @@ parallel code distribution.
 
 > Users should be able to run the same pipeline on their laptop with local or remote
 > data, or on a distributed cluster with local or remote data* and the products of the
-> products of the pipeline should be tied to the code and be "publish ready".
+> pipeline should be tied to the code and be "publish ready".
 
 -- Some scientist probably (it was Rory)
 
-_* depending on the cluster configuration, data must be local or remote but usually
-cannot be both_
+_* depending on the distributed cluster configuration, data must be local or remote but
+usually cannot be both_
 
 ## Psuedo-code
 The following is Python psuedo-code for the general end target for these tools.
 
-It will shorten a common process known to many scientists in the institute of:
-
+It will shorten a common process known to many scientists in the institute:
 1. selecting data you are interested in from an image
 2. normalizing that data
 3. storing projects or other representations of each selected datum
@@ -35,7 +34,7 @@ from databacked import (
     # Developer chooses which dataset level result they want
     LocalDatasetResult, QuiltDatasetResult, FMSDatasetResult,
     # Developer chooses which single item level result they want
-    # LocalResult and S3Result are just routers to base prefect
+    # LocalResult and S3Result are just routers to base prefect objects
     LocalResult, S3Result, FMSResult,
     # Various serializers for common data types we work with
     ArrayToOmeTiff, ArrayToDefaultWriter
@@ -46,7 +45,7 @@ from databacked import (
 @task
 def select_cell_data(fov_path: types.FSSpecLike, cell_index: int) -> da.Array:
     """
-    Loads the image from any FSSpec like path and returns just the ZYX cell data.
+    Loads the image from any FSSpec like path and returns just the CZYX cell data.
     """
     img = AICSImage(fov_path)
     # ...
@@ -55,7 +54,7 @@ def select_cell_data(fov_path: types.FSSpecLike, cell_index: int) -> da.Array:
 @task(
     result=LocalResult(
         dir="local_staging/normalized_cells/",
-        serializer=ArrayToOmeTiff(dimensions="ZYX"),
+        serializer=ArrayToOmeTiff(dimensions="CZYX", channel_names=["a", "b", "..."]),
     ),
     target=lambda **kwargs: "{}.ome.tiff".format(kwargs.get("cell_id")),
 )
@@ -125,6 +124,10 @@ With current psuedo-code this results in:
 
 _* I believe S3Result needs to be prefixed with s3://bucket-header, but still minimal
 changes to move from local to remote_
+
+#### Checkpointing
+
+...
 
 ## Technology Choices
 
