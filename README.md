@@ -6,7 +6,7 @@ Planned tools for making pipeline development and data reproduction easier
 The goal of these tools is to allow the scientists to not focus on data storage or
 parallel code distribution.
 
-> "Users, developers, scientests, etc. should be able to run the same pipeline on their
+> "Users, developers, scientists, etc. should be able to run the same pipeline on their
 > laptop with local or remote data, or on a distributed cluster with local or remote
 > data* and the products of the pipeline should be tied to the code and be 'publish
 > ready.'"
@@ -43,7 +43,7 @@ _The `[1]` representations are lists of `1` added as parameters to the function 
 across. In an actual example these would be much larger datasets. See below for more
 discussion._
 
-The following is Python psuedo-code for the above description:
+The following is Python psuedo-code for the above workflow description:
 ```python
 from aicsimageio import AICSImage, types
 import dask.array as da
@@ -55,7 +55,7 @@ from databacked import (
     # Developer chooses which dataset level result they want
     LocalDatasetResult, QuiltDatasetResult, FMSDatasetResult,
     # Developer chooses which single item level result they want
-    # LocalResult and S3Result are just routers to base prefect objects
+    # LocalResult and S3Result are just routers to base Prefect objects
     LocalResult, S3Result, FMSResult,
     # Various serializers for common data types we work with
     ArrayToOmeTiff, ArrayToDefaultWriter
@@ -224,27 +224,76 @@ flow.run()
 ### End Result of Pseudo-code
 
 With current psuedo-code this results in:
-1. Scientist doesn't have to care about file IO due to serializers
+1. Scientist doesn't have to care about file IO due to result serializers
 2. Results are _**checkpointed**_ at: `local_staging/` from current working directory
 3. To move from local to remote they can find-replace `LocalResult` w/ `S3Result`*
+4. To change where to store dataset level results (manifests), find-replace also works
 
 _* I believe S3Result needs to be prefixed with s3://bucket-header, but still minimal
 changes to move from local to remote_
 
 #### Checkpointing
 
-...
+A common concern over pipeline development is how a pipeline deals with interrupts,
+restarts, etc. Checkpointing is done _by_ Prefect for us with the `target` keyword.
+What this means in practice is that if the workflow was to stop for any reason and has
+already stored results of a task and will simply check the target location of the result
+during a rerun and _deserialize_ the bytes when needed.
+
+To change this behavior to _always_ save the result and not check the target, the
+user simply has to change `target` to `location`.
+
+If a user wants to keep using checkpointing but want's to clear their cache they
+simply remove the file from disk.
+
+This is built into Prefect.
 
 ## Technology Choices
+
+This next section will go into the reasons why certain technologies were made the way
+they were and most importantly, _how_ these technologies work well together.
 
 1. [AICSImageIO](#aicsimageio)
 2. [Dask](#dask)
 3. [Prefect](#prefect)
 
-
 ### AICSImageIO
 
-...
+AICSImageIO is the core image reading and writing library for the institute. That is
+it, short and sweet.
+
+But it does some neat stuff for us that makes it work well with the rest of the
+technologies.
+
+Specifically it uses _Dask_ under the hood to allow for any size image to be read and
+manipulated. Dask has many supporting libraries for `array`, `dataframe`, and `bag`
+style objects but specifically, AICSImageIO utilizes `dask.array` and `dask.delayed`.
+
+In practice this simply means we construct a "fake" array that chunks of which can be
+loaded at any time and we inform Dask _how_ to load those chunks. So an "out-of-memory"
+image for us really means -- "A fake array that knows how to load parts of the image on
+request."*
+
+This feature is important to mention but is relatively minor for the purpose of this
+document (until we start processing hundred GB size timeseries files). The most
+beneficial _planned_ aspect of AICSImageIO to pipeline development is the ability to
+read local or remote files under the same unified API. If someone wanted to provide
+a path to an file on S3 (i.e. `s3://my-bucket/my-file.ome.tiff`), even though it is
+remote, it would _still_ know how to create and read this "fake" or fully in-memory
+array.
+
+_* The chunksize of the "fake" (delayed) array matters a lot and in most cases it is
+better to simply read the entire image into memory in a single shot rather than utilize
+this functionality. But it is important that we build it in anyway to make it possible
+and because future formats designed for chunked reading are on their way._
+
+The most important aspect of AICSImageIO in regards to pipeline development is that it
+provides a unified API for:
+* reading any size file
+* reading any of the supported file formats
+* reading local or remote
+* interacting with common metadata pieces across formats
+* writing to local or remote to a common format
 
 ### Dask
 
@@ -269,3 +318,6 @@ changes to move from local to remote_
 ### ArrayTo Serializers
 
 ...
+
+
+## Benefits Over Datastep
