@@ -3,13 +3,9 @@ Planned tools for making pipeline development and data reproduction easier
 
 ## Goals
 
-The goal of these tools is to allow the scientists to not focus on data storage or
-parallel code distribution.
-
 > "Users, developers, scientists, etc. should be able to run the same pipeline on their
-> laptop with local or remote data, or on a distributed cluster with local or remote
-> data* and the products of the pipeline should be tied to the code and be 'publish
-> ready.'"
+> laptop or a distributed cluster with local or remote data* and the products of the
+> pipeline should be tied to the code and be 'publish ready.'"
 
 -- Some scientist probably (it was [Rory](https://github.com/donovanr))
 
@@ -23,6 +19,20 @@ usually cannot be both_
 * data is linked to the code that produced it
 * data organization is (partially) managed for the user
 * scaling from laptop to cluster should be a non-issue
+
+### A Brief Discussion on Why
+
+Why do we care about those bullets? If the goal is "easily reproducible publishable
+science" -- wouldn't you also want to make it easy to test and document
+your workflow? Wouldn't it be nice to tie generated research objects (results, plots,
+etc.) to the code that produced it? And, wouldn't it be nice to make it so that
+your workflow can run on some other infrastructure?
+
+That isn't even counting the value of doing this for ourselves. All of these things
+generally make iterative development easier in the long run when we inevitably need to
+change the data source, or one of the tasks in the workflow, or someone asks _how_ a
+plot was made, or we realize we can save money by moving from one set of infrastructure
+pieces to another.
 
 ## Psuedo-code
 The following psuedo-code will show the effect of these tools on a common workflow for
@@ -248,6 +258,14 @@ simply remove the file from disk.
 
 This is built into Prefect.
 
+#### Other Comments
+
+The example above utilizes a custom serializer to go from array to bytes but in many
+cases there is value in the user fully serializing the object in their function so that
+they can return a path like object back from their task. In this case there is an
+opportunity to contribute back to Prefect core (as it is entirely open source) and add a
+`S3FromPathResult` object or a parameter `from_path=True` to the existing `S3Result`.
+
 ## Technology Choices
 
 This next section will go into the reasons why certain technologies were made the way
@@ -256,11 +274,12 @@ they were and most importantly, _how_ these technologies work well together.
 1. [AICSImageIO](#aicsimageio)
 2. [Dask](#dask)
 3. [Prefect](#prefect)
+4. [Quilt](#quilt)
 
 ### AICSImageIO
 
-AICSImageIO is the core image reading and writing library for the institute. That is
-it, short and sweet.
+[AICSImageIO](http://github.com/AllenCellModeling/aicsimageio) is the core image
+reading and writing library for the institute. That is it, short and sweet.
 
 But it does some neat stuff for us that makes it work well with the rest of the
 technologies.
@@ -285,24 +304,126 @@ array.
 _* The chunksize of the "fake" (delayed) array matters a lot and in most cases it is
 better to simply read the entire image into memory in a single shot rather than utilize
 this functionality. But it is important that we build it in anyway to make it possible
-and because future formats designed for chunked reading are on their way._
+for large image reading and because future formats designed for chunked reading are on
+their way._
 
-The most important aspect of AICSImageIO in regards to pipeline development is that it
+The most important aspects of AICSImageIO in regards to pipeline development is that it
 provides a unified API for:
 * reading any size file
 * reading any of the supported file formats
 * reading local or remote
 * interacting with common metadata pieces across formats
-* writing to local or remote to a common format
+* writing to local or remote
+* writing to a common standard format
 
 ### Dask
 
-...
+[Dask](dask.org) provides a whole host of useful things to the Python ecosystem. I would
+highly recommend looking at their website for more details but for now I will give the
+very brief rundown of why Dask for us.
+
+As written in the [AICSImageIO](#aicsimageio) section, Dask provides a near identical
+`numpy.ndarray` (`dask.array`) interface that we can use to interact with
+too-large-for memory images as well as distribute out computation against those images.
+
+Additionally, Dask provides a near identical `pandas.DataFrame` (`dask.dataframe`)
+interface that can help achieve similar goals with dataframe objects that are
+too-large-for-memory datasets as well.
+
+Finally, and crucially, all of this functionality can have computations ran against the
+Dask native objects or just run multiple tasks in parallel using their `distributed`
+library which makes it easy to distribute work out to:
+* [a single machine](https://docs.dask.org/en/latest/setup/single-distributed.html)
+* [an HPC cluster](https://docs.dask.org/en/latest/setup/hpc.html)*
+* [a cloud deployment](https://cloudprovider.dask.org/en/latest/) (see my minimal
+[fargate example](https://github.com/JacksonMaxfield/fargate-example/blob/master/prefect_example.py))
+
+_* Unfortunately we have had difficulty utilizing the SLURM cluster to it's fullest
+with Dask. It seems to be a combination of many different things: our Isilon read /
+write times, the SLURM cluster's original setup (most recently used vs round robin), the
+institute network, heavy Python tasks (memory transfer between workers), etc. I am not
+discouraged by this however, I would simply say that whenever we move to cloud
+deployments and storage, Dask is a good solution to use as it works well with the other
+technology choices and from my own experiments and work with Theriot Lab, Dask and
+FargateCluster work incredibly well together. I would highly encourage checking out my
+[fargate example made for the Theriot Lab](https://github.com/JacksonMaxfield/fargate-example)._
+
+What does this all mean for workflow development:
+* easy to create out-of-memory objects w/ similar APIs to already known libraries
+* easy to distribute computations across out-of-memory datasets and arrays
+* moving from local to cloud for computation can be done by replacing a single object*
+
+_* Again, this assumes that when working on the cloud, the data is accessible to the
+cloud deployment._
 
 ### Prefect
 
-...
+[Prefect](https://github.com/prefecthq/prefect) makes developing DAGs much much easier
+in pure Python than any other DAG library I have interacted with (so far). In general,
+I recommend reading their
+[Why Not Airflow](https://docs.prefect.io/core/getting_started/why-not-airflow.html#dynamic-workflows) documentation.
 
+In short for scientific pipeline development there were two key things we cared about
+_in addition to everything else Prefect offers us_:
+
+* We wanted a DAG development framework that could "deploy" DAGs to a central manager /
+server / UI
+* We wanted a DAG development frame that could run entire DAGs on request with minimal
+hassle
+
+#### Server / UI
+
+Airflow offers this, many DAG frameworks now offer this. For us this is somewhat
+required both for monitoring all the various pipelines and the entire system but
+additionally have the ability for non-computational scientists to trigger workflows by
+themselves without the assistance of engineers.
+
+> "It would be great if a person on the microscopy team could trigger a workflow to
+> process a specific CSV dataset rather than asking one of us to do it or asking them
+> to open a terminal and install all of this stuff."
+
+#### On-Demand Full DAG Runs
+
+One of the frustrations for us originally was how hard we felt it was to simply just
+utilize our cluster and run a workflow in its entirety on the same dataset but with
+with different parameter sets. So we wanted a system that was basically pure Python
+enough that we could basically have the same bin script level of functionality to kick
+off pipeline runs with various parameters locally as well.
+
+Additionally, many of us have _always_ been concerned about the question "well what
+happens when we update a very upstream task of our workflow -- how long will it take to
+reprocess our entire dataset?"
+
+By choosing a workflow development framework that allows us to kick off workflow runs
+just like a normal bin script would it makes it feel (and is) more iterative. If we
+want to compare the outputs of the same workflow but with an upstream task using
+version 1 vs version 2 of an algorithm that _should_ be as simple as kicking off the
+bin script once, changing which import you use, then kicking off the bin script again*.
+
+_* There are many more things to do for a "production" setup -- usually, updating the
+tests, the docker image, etc. But this requirement is specifically to address iterative
+scientific workflow development._
+
+#### Separation of Execution and Workflow
+
+Looking at our original goals there was a key point of being able to run workflows on a
+local machine or on a cloud deployment -- Prefect solves this by having builtin
+separation of workflow management and actual execution. What this means is that to
+parallelize an entire workflow you can provide an executor to the workflow of
+indicating the system that should execute this workflow. Given that Prefect has deep
+ties to Dask, this means you can provide all of the options listed in the [Dask](#dask)
+section for cluster deployments to Prefect and it will parallelize to the best of it's
+ability.
+
+One additional benefit of this behavior is that instead of making a roundtrip to the
+workflow triggering machine with the intermediate results of the workflow, it will
+simply tell "worker a" needs to pass "worker b" the intermediate results for it to
+continue with the DAG. And less roundtrips to the triggering machine is always a good
+thing -- especially with large datasets.
+
+### Quilt
+
+...
 
 ## The Last-Mile Library
 
