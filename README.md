@@ -435,7 +435,8 @@ a couple of solutions but ended on Quilt due to it:
 * having a UI (catalog) to view the data
 * supporting private and public data management
 * has no real setup required
-* supports data versioning and paper publishing compatible
+* supports data versioning
+* supports in publishing data with a paper
 
 One of the major things that I use it for is literally just
 [viewing the data](https://open.quiltdata.com/b/allencell/tree/aics/actk/master/singlecellimages/cell_images_2d_all_proj/)
@@ -447,8 +448,8 @@ for quality control and checking for outliers.
 [I helped write the n-dim image thumbnail generator](https://github.com/quiltdata/quilt/blob/master/lambdas/thumbnail/index.py))
 
 But all in all, it is a very easy library to use. And most of all, as we publish papers
-and data, and make changes the data, and QC out some data points, the whole dataset is
-versioned -- with the end goal having always been an easy download command for external
+and data, make changes the data, and QC out some data points, the dataset is versioned
+as a whole -- with the end goal having always been an easy download command for external
 users:
 
 ```python
@@ -461,8 +462,8 @@ allen_cell_collection = Package.browse(
 )
 ```
 
-Making it so that when we _publish_ the paper we can include: "this results of this
-paper were generated using this specific version of our dataset found here".
+Making it so that when we _publish_ the paper, we can include: "the results of this
+paper were generated using a specific version of our dataset found here".
 
 ## The Last-Mile Library
 
