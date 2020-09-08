@@ -413,6 +413,7 @@ parallelize an entire workflow, you can provide an executor to the workflow, ind
 to the system how it should execute this workflow. Given that Prefect has deep ties to
 Dask, this means you can provide all of the options listed in the [Dask](#dask) section
 for cluster deployments to Prefect and it will parallelize to the best of it's ability.
+If Dask isn't the best solution, in the future, this executor can simply be swapped out.
 
 One additional benefit of this behavior is that instead of making a roundtrip to the
 workflow triggering machine with the intermediate results of the workflow, it will
@@ -422,7 +423,46 @@ thing -- especially with large datasets.
 
 ### Quilt
 
-...
+I personally think about data processing at the institute as very large batch dataset
+processing. Dataset level -- not streaming individual items. While many of the above
+systems work just fine with stream processing, Quilt excels at large dataset management.
+
+When considering how to store files that we want to process or distribute, we looked at
+a couple of solutions but ended on Quilt due to it:
+* having a pretty sensible Python API
+* focused on dataset level management
+* is open source (we can contribute)
+* having a UI (catalog) to view the data
+* supporting private and public data management
+* has no real setup required
+* supports data versioning and paper publishing compatible
+
+One of the major things that I use it for is literally just
+[viewing the data](https://open.quiltdata.com/b/allencell/tree/aics/actk/master/singlecellimages/cell_images_2d_all_proj/)
+for quality control and checking for outliers.
+
+![Screenshot of catalog](static/quilt-catalog-cells.png)
+
+(Open source means:
+[I helped write the n-dim image thumbnail generator](https://github.com/quiltdata/quilt/blob/master/lambdas/thumbnail/index.py))
+
+But all in all, it is a very easy library to use. And most of all, as we publish papers
+and data, and make changes the data, and QC out some data points, the whole dataset is
+versioned -- with the end goal having always been an easy download command for external
+users:
+
+```python
+from quilt3 import Package
+
+allen_cell_collection = Package.browse(
+    "s3://allencell",
+    "aics/allen_cell_collection",
+    top_hash="some-version-here"
+)
+```
+
+Making it so that when we _publish_ the paper we can include: "this results of this
+paper were generated using this specific version of our dataset found here".
 
 ## The Last-Mile Library
 
@@ -430,6 +470,8 @@ thing -- especially with large datasets.
 
 1. "DatasetResult" Handlers
 2. "ArrayTo*" Serializers
+
+### Datastep
 
 ### DatasetResult Handlers
 
