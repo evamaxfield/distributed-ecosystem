@@ -1,6 +1,13 @@
 # Distributed Ecosystem Tools and Planning
 Planned tools for making pipeline development and data reproduction easier
 
+#### Index
+1. [Goals](#goals)
+2. [Psuedo-code](#psuedo-code)
+3. [Technology Choices](#technology-choices)
+4. [Last Mile Library](#the-last-mile-library)
+5. [Wrap Up](#wrap-up)
+
 ## Goals
 
 > "Users, developers, scientists, etc. should be able to run the same pipeline on their
@@ -15,8 +22,8 @@ _* local and remote data usage depends on cluster configuration_
 
 * iterative development should be simple
 * sharing data should be easy (internally or externally)
-* data is linked to the code that produced it
-* data organization is (partially) managed for the user
+* data should be linked to the code that produced it
+* data organization should be (partially) managed for the user
 * scaling from laptop to cluster should be a non-issue
 
 ### A Brief Discussion on Why
@@ -27,11 +34,10 @@ your workflow? Wouldn't it be nice to tie generated research objects (results, p
 etc.) to the code that produced it? And, wouldn't it be nice to make it so that
 your workflow can run on some other infrastructure?
 
-That isn't even counting the value of doing this for ourselves. All of these things
-generally make iterative development easier in the long run when we inevitably need to
-change the data source, change one of the tasks in the workflow, someone asks _how_ a
-plot was made, or we realize we can save money by moving from one infrastructure setup
-to another.
+All of these goals generally make iterative development internally easier in the long
+run as well when we inevitably need to change the data source, change one of the tasks
+in the workflow, someone asks _how_ a plot was made, or we realize we can save money by
+moving from one infrastructure setup to another.
 
 ## Psuedo-code
 The following psuedo-code will show the effect that these planned tools have on a
@@ -429,11 +435,11 @@ systems work just fine with stream processing, Quilt excels at large dataset man
 
 When considering how to store files that we want to process or distribute, we looked at
 a couple of solutions but ended on Quilt due to it:
-* having a pretty sensible Python API
-* focused on dataset level management
+* has a pretty sensible Python API
+* focuses on dataset level management
 * is open source (we can contribute)
-* having a UI (catalog) to view the data
-* supporting private and public data management
+* has a UI (catalog) to view the data
+* supports private and public data management
 * has no real setup required
 * supports data versioning
 * supports in publishing data with a paper
@@ -467,20 +473,110 @@ paper were generated using a specific version of our dataset found here".
 
 ## The Last-Mile Library
 
-"databacked" -- or whatever you want to name it.
+"databacked", "datastep", -- or whatever you want to name it.
 
-1. "DatasetResult" Handlers
-2. "ArrayTo*" Serializers
+While all of the above technologies described and used in the psuedo-code example have
+a lot builtin, they are missing the final pieces to achieve all of the goals originally
+described and many of these final pieces may even be considered to be added to base
+Prefect with a bit of polish. Which, I think, would be a general benefit to the
+community.
+
+1. [Datastep](#datastep)
+1. ["DatasetResult" Handlers](#datasetresult-handlers)
+2. ["ArrayTo*" Serializers](#arrayto-serializers)
 
 ### Datastep
 
+[Datastep](https://github.com/AllenCellModeling/datastep) can be thought of as a very
+rough first version of everything described in this document. In fact, I usually
+describe everything here as `datastep v1.0.0` followed by immediately saying "the goal
+of datastep 1.0.0 is for it to not exist and be replaced by better tooling" -- the
+ideas in this document are "the better tooling."
+
+Many of the ideas that went into datastep and this document have been discussed over the
+course of my time at Allen and so much so that most of the dataset level management was
+directly pulled from an even earlier library,
+[Quilt3Distribute](https://github.com/AllenCellModeling/quilt3distribute), which aimed
+at making "manifest" style datasets even easier to upload by simplifying the process
+of attaching metadata to each file uploaded.
+
+Datastep's original goal was to make it easier to work _collabortively_ on large
+dataset scientific workflows. This largely stemmed out of the
+[FISH paper](https://www.biorxiv.org/content/10.1101/2020.05.26.081083v1) work as there
+were people who were only working on one step of the workflow but needed to share data
+with every one else up or downstream of them.
+
+The goal of datastep more specifically, was to make a system that could act like git
+for data management (push, pull, checkout, etc) but also managed the execution of the
+workflow itself. At the time when datastep v0.1.0 was being originally worked on, the
+result and serializer types in Prefect hadn't been added and so we went with a very
+custom object.
+
+In general I would say these early versions of datastep were a success. The integrated
+cell pre-processing workflow:
+[Automated Cell Toolkit (ACTK)](https://github.com/AllenCellModeling/actk) is an
+excellent example of a well formed datastep library and where it is useful
+(i.e. a highly rerunable workflow with data publishing built in).
+
+However, datastep did have some obvious downsides:
+* It makes the "Prefect" API much more object oriented (even though it is our custom
+code that is the culprit -- people were still confused why Prefect tasks needed to be
+an object).
+* Scientists more familiar with Jupyter Notebooks and scripting didn't know how to work
+with the object-oriented approach.
+* It introduced a key difference from base Prefect -- datastep "Step" objects should
+usually contain some serialization of a dataset or manifest.
+* We lost the all important Prefect Task "map" function.
+
+The above issues can all be resolved with the planned tooling in this document:
+* We are now using base Prefect
+* Base prefect can be scripted -- even in a Jupyter Notebook
+* Serialization and result checkpointing can be managed on a per-task level
+* and again, we are now using base Prefect
+
+What we currently _lose_ from the upgrade is the "data management like git":
+* `project step push`
+* `project step checkout`
+* `project step pull`
+
+However, I feel these can be kept as features with a bit more thinking.
+
 ### DatasetResult Handlers
 
-...
+The objective of these handlers is to replace the current datastep "push" functionality.
+These Result objects should attempt to mirror the
+[Quilt3Distribute](https://github.com/AllenCellModeling/quilt3distribute) API but simply
+operate when a dataframe is provided back to them.
+
+What I specifically appreciate about this approach is that it makes it even easier to
+adopt more storage systems in the future. We have always talked about a tighter coupling
+of our internal File Management System (FMS) and the tooling used by Modeling / Assay
+Dev and it is very easy to imagine a `FMSDatasetResult` that has the same API but
+uploads files to our internal FMS and uploads the metadata to the backing database.
+(This was part of the reason why I pushed so hard for custom annotations with an easy
+API to attach them to files with).
 
 ### ArrayTo Serializers
 
-...
+These are more up for discussion. I personally see immense value in adding these, as
+many scientists prefer to simply work in arrays for the duration of their script.
+However, checkpointing work is good, and, checkpointing with metadata where possible is
+even more valuable as it makes it easier to create "publishable datasets" on the go.
 
+I expect these would largely wrap the planned AICSImageIO writer API.
 
-## Benefits Over Datastep
+## Wrap Up
+
+I have been asked a lot of questions about "what happens to datastep when these new
+tools are released?" and I want to address that first.
+
+Nothing.
+
+Datastep can and should keep working, that is the purpose of releasing versioned
+Python libraries. If you want to keep using datastep v0.1.8, then by all means, keep
+using it -- Even with all my comments in this document, I think it is still a pretty
+neat idea and works well in many situations.
+
+That said, I do hope to see many of these tools and have specifically made this
+document on my own GitHub account because I think I will probably end up making some of
+these tools myself.
