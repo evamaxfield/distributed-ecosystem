@@ -289,6 +289,11 @@ opportunity to contribute back to Prefect core (as it is entirely open source) a
 This next section will go into the reasons why certain technologies were made the way
 they were and most importantly, _how_ these technologies work well together.
 
+_Preface: It is important to note that while these are tools I like working with, they
+may not be the end-all-be-all. A better tool will likely come around given enough time
+but the importance of this section is to document how tools interact together and how
+each one **adds** to the overall system to achieve the goals as previously described._
+
 1. [AICSImageIO](#aicsimageio)
 2. [Dask](#dask)
 3. [Prefect](#prefect)
